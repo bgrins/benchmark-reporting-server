@@ -35,7 +35,11 @@ exports.getJson = async (req, res) => {
   if (!rows || !rows.length) {
     return res.status(404).send("Not found");
   }
-  res.status(200).set("Content-Type", "application/json").send(rows[0].json);
+  res
+    .status(200)
+    .set("Cache-control", "max-age=31536000, immutable")
+    .set("Content-Type", "application/json")
+    .send(rows[0].json);
 };
 
 exports.insertData = async (req, res) => {
