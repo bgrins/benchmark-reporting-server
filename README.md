@@ -1,4 +1,4 @@
 
 ```
-./setup.sh
+./script/deploy.sh
 ```

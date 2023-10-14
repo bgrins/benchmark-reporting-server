@@ -1,15 +1,15 @@
 const { BigQuery } = require("@google-cloud/bigquery");
 const { createHash } = require("crypto");
 const UAParser = require("ua-parser-js");
+const { Storage } = require("@google-cloud/storage");
+
+const { BUCKET_ID, PROJECT_ID, DATASET_ID } = process.env;
 
 function hash(string) {
   return createHash("sha256").update(string).digest("hex");
 }
 
-const projectId = "benchmark-results";
-const datasetId = "speedometer3";
-
-const bigquery = new BigQuery({ projectId });
+const bigquery = new BigQuery({ projectId: PROJECT_ID });
 
 exports.getJson = async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
@@ -27,19 +27,21 @@ exports.getJson = async (req, res) => {
       .status(400)
       .send("Invalid request. Please provide the required data.");
   }
-  const [rows] = await bigquery.query({
-    query: `SELECT json FROM ${datasetId}.submission WHERE TO_HEX(SHA256(CONCAT(created, "_", client_hash, "_", url))) = @id`,
-    params: { id },
-  });
 
-  if (!rows || !rows.length) {
-    return res.status(404).send("Not found");
+  const storage = new Storage();
+  const bucket = storage.bucket(BUCKET_ID);
+  const file = bucket.file(`${id}.json`);
+  const [exists] = await file.exists();
+  if (exists) {
+    const [data] = await file.download();
+    res
+      .status(200)
+      .set("Cache-control", "max-age=31536000, immutable")
+      .set("Content-Type", "application/json")
+      .send(data);
+    return;
   }
-  res
-    .status(200)
-    .set("Cache-control", "max-age=31536000, immutable")
-    .set("Content-Type", "application/json")
-    .send(rows[0].json);
+  return res.status(404).send("Not found");
 };
 
 exports.insertData = async (req, res) => {
@@ -81,9 +83,10 @@ exports.insertData = async (req, res) => {
         .status(400)
         .send("Score not found. Please provide the required data.");
     }
+    const created = bigquery.datetime(new Date().toISOString());
     // name:STRING,score:FLOAT,useragent:STRING,client_hash:STRING,url:STRING,created:TIMESTAMP,notes:STRING,json:STRING,csv:STRING
-    const [submission] = await bigquery
-      .dataset(datasetId)
+    const [result] = await bigquery
+      .dataset(DATASET_ID)
       .table("submission")
       .insert({
         name: requestBody.name || "Anonymous",
@@ -91,12 +94,20 @@ exports.insertData = async (req, res) => {
         useragent: JSON.stringify(parserResults),
         client_hash,
         url: referer,
-        created: bigquery.datetime(new Date().toISOString()),
+        created,
         notes: notes || "",
         json: JSON.stringify(json),
         csv,
       });
 
+    const json_hash = hash(JSON.stringify(json));
+    const storage = new Storage();
+    const bucket = storage.bucket("benchmark-results-storage");
+    const file = bucket.file(`${json_hash}.json`);
+    await file.save(JSON.stringify(json));
+
+    // Can't find a good way for the ID to be inferred from the client here and store in the bucket.
+    // Maybe the ID should be the SHA of the JSON
     res.status(200).send("Data inserted successfully.");
   } catch (error) {
     console.error(

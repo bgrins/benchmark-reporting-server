@@ -17,3 +17,5 @@ node_modules
 
 npm-debug.log
 .vscode/
+.env
+.env.yaml
