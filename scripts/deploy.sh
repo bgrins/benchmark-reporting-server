@@ -9,6 +9,13 @@ if false; then
   gcloud functions deploy insertData --source=functions --env-vars-file ./functions/.env.yaml
 fi
 
+gcloud functions deploy getSummary \
+  --source=functions \
+  --env-vars-file ./functions/.env.yaml \
+  --runtime=nodejs18 \
+  --trigger-http \
+  --allow-unauthenticated
+
 gcloud functions deploy getJson \
   --source=functions \
   --runtime=nodejs18 \

@@ -2,14 +2,49 @@ const { BigQuery } = require("@google-cloud/bigquery");
 const { createHash } = require("crypto");
 const UAParser = require("ua-parser-js");
 const { Storage } = require("@google-cloud/storage");
+const papaparse = require("papaparse");
 
-const { BUCKET_ID, PROJECT_ID, DATASET_ID } = process.env;
+const { BUCKET_ID, PROJECT_ID, DATASET_ID, SUMMARY_VIEW_ID } = process.env;
 
 function hash(string) {
   return createHash("sha256").update(string).digest("hex");
 }
 
 const bigquery = new BigQuery({ projectId: PROJECT_ID });
+
+exports.getSummary = async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Methods", "GET");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
+    res.set("Access-Control-Max-Age", "3600");
+    res.status(204).send("");
+    return;
+  }
+
+  const storage = new Storage();
+  const bucket = storage.bucket(BUCKET_ID);
+  const file = bucket.file(`api_summary.csv`);
+  const [exists] = await file.exists();
+  if (exists) {
+    const [metadata] = await file.getMetadata();
+    const lastUpdated = new Date(metadata.updated);
+    const now = new Date();
+    const diffInMinutes = (now - lastUpdated) / (1000 * 60);
+
+    if (diffInMinutes < 5) {
+      const [data] = await file.download();
+      res.status(200).set("Content-Type", "text/plain").send(data);
+      return;
+    }
+  }
+
+  let query = "SELECT * FROM `speedometer3.submission-summary`";
+  let [rows] = await bigquery.query(query);
+  const csv = papaparse.unparse(rows);
+  file.save(csv);
+  res.status(200).set("Content-Type", "text/plain").send(csv);
+};
 
 exports.getJson = async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
